@@ -95,6 +95,9 @@ function api_addScore_(token, payload) {
         Logger.log('ส่ง LINE แจ้งเตือนคะแนนไม่สำเร็จ: ' + lineErr.message);
       }
 
+      // ⚡ ล้าง dashboard cache เพราะคะแนนเปลี่ยน → summary (atRisk) เปลี่ยน
+      invalidateDashboardCache_();
+
       // ตรวจสอบว่าข้ามเกณฑ์แจ้งเตือนหรือไม่ (เฉพาะกรณีลดคะแนน)
       let alertTriggered = null;
       if (type === 'deduct') {

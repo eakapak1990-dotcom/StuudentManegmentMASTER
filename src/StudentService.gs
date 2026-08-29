@@ -132,6 +132,9 @@ function api_addStudent_(token, payload) {
     logAudit_(session, 'CREATE', CONFIG.SHEET_NAMES.STUDENTS, newId, '', 'เพิ่มนักเรียนใหม่: ' + payload.firstName + ' ' + payload.lastName);
     addTimelineEvent_(newId, 'create', 'เพิ่มข้อมูลนักเรียนเข้าระบบ', 'บันทึกโดย ' + session.fullName, session.fullName);
 
+    // ⚡ ล้าง dashboard cache เพราะจำนวนนักเรียนเปลี่ยน
+    invalidateDashboardCache_();
+
     return { success: true, studentId: newId, recordSequence: recordSequence };
   } catch (err) {
     Logger.log('API error: ' + err.message);
@@ -349,6 +352,9 @@ function api_updateStudent_(token, studentId, payload) {
       ensurePhoneTextFormat_(pSheet);
     }
 
+    // ⚡ ล้าง dashboard cache เพราะข้อมูลนักเรียนเปลี่ยน
+    invalidateDashboardCache_();
+
     return { success: true };
   } catch (err) {
     Logger.log('API error: ' + err.message);
@@ -379,6 +385,8 @@ function api_deleteStudent_(token, studentId) {
         deleteRelatedRows_(CONFIG.SHEET_NAMES.LINE_BINDINGS, studentId);
 
         logAudit_(session, 'DELETE', CONFIG.SHEET_NAMES.STUDENTS, studentId, before, '');
+        // ⚡ ล้าง dashboard cache เพราะจำนวนนักเรียนเปลี่ยน
+        invalidateDashboardCache_();
         return { success: true };
       }
     }

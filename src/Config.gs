@@ -69,7 +69,21 @@ const CONFIG = {
   // ============================================================
   // Session
   // ============================================================
-  SESSION_DURATION_HOURS: 6,   // CacheService max = 6 ชม. (21,600 วินาที)
+  // CacheService รองรับ TTL สูงสุด 6 ชม. (21,600 วินาที)
+  // ระบบออกแบบให้ session หมดอายุใน 1 วัน แสดงว่าต้องใช้ PropertiesService
+  // (อ่านด้านล่าง) — SESSION_DURATION_HOURS ที่นี่ใช้ควบคุมเฉพาะ cache TTL
+  // ฝั่ง client จะถือเวลาหมดอายุเอง ถ้าหมดให้ redirect login ใหม่
+  SESSION_DURATION_HOURS: 6,
+
+  // ============================================================
+  // Cache TTL (วินาที) — ข้อมูลที่เปลี่ยนไม่บ่อย
+  // ============================================================
+  CACHE_TTL: {
+    USER_MAP:        10 * 60,   // 10 นาที — รายชื่อ user ทั้งหมด (lookup map)
+    SESSION_VERSION: 30 * 60,   // 30 นาที — เวอร์ชัน session ต่อ user (PropertiesService เป็น source of truth)
+    SHEET_META:      30 * 60,   // 30 นาที — ตำแหน่งคอลัมน์ headers ของแต่ละ sheet
+    CONFIG_VALUE:    10 * 60,   // 10 นาที — ค่าตั้งค่าจาก Sheet Config
+  },
 
   // ============================================================
   // ข้อมูลโรงเรียน (สำหรับหนังสือราชการ)
@@ -95,27 +109,67 @@ const CONFIG = {
 }; // <-- ย้าย }; มาปิด Object CONFIG ที่ตรงนี้แทน
 
 // ============================================================
-// Helper Functions
+// Helper Functions — พร้อม request-scoped caching
 // ============================================================
+// OPTIMIZE: เก็บ Spreadsheet/Sheet object ไว้ในตัวแปร global ของ execution ปัจจุบัน
+// เพื่อกันการเปิดซ้ำในคำขอเดียวกัน (openById แต่ละครั้งคือ RPC 1 ครั้ง)
+// ค่านี้อยู่ใน memory เฉพาะ execution ปัจจุบันเท่านั้น หมดอายุเมื่อ function จบ
+let _ssCache = null;
+const _sheetCache = {};
 
 /**
- * เปิด Spreadsheet หลักของระบบ
+ * เปิด Spreadsheet หลักของระบบ — cache ใน request scope (เปิดครั้งเดียวต่อคำขอ)
  */
 function getSpreadsheet() {
   if (!CONFIG.SPREADSHEET_ID) {
     throw new Error('กรุณาตั้งค่า SPREADSHEET_ID ใน Config.gs');
   }
-  return SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  if (!_ssCache) {
+    _ssCache = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  }
+  return _ssCache;
 }
 
 /**
- * เปิด Sheet ตามชื่อที่กำหนด
+ * เปิด Sheet ตามชื่อที่กำหนด — cache ใน request scope
  */
 function getSheet(sheetName) {
+  if (_sheetCache[sheetName]) return _sheetCache[sheetName];
   const ss = getSpreadsheet();
   const sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     throw new Error(`ไม่พบ Sheet ชื่อ: ${sheetName}`);
   }
+  _sheetCache[sheetName] = sheet;
   return sheet;
+}
+
+/** ล้าง cache ของ Spreadsheet/Sheet ใน request ปัจจุบัน — เรียกหลังแก้ไขข้อมูลใน sheet นั้น */
+function invalidateSheetCache_(sheetName) {
+  if (sheetName) {
+    delete _sheetCache[sheetName];
+  } else {
+    _ssCache = null;
+    for (const k in _sheetCache) delete _sheetCache[k];
+  }
+}
+
+// ============================================================
+// CacheService helpers — สำหรับข้อมูลที่เปลี่ยนไม่บ่อย (ข้ามการ execution)
+// ============================================================
+function getCache() { return CacheService.getScriptCache(); }
+function getProps() { return PropertiesService.getScriptProperties(); }
+
+function cacheGetJson_(key) {
+  const raw = getCache().get(key);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+function cachePutJson_(key, value, ttlSeconds) {
+  getCache().put(key, JSON.stringify(value), ttlSeconds);
+}
+
+function cacheRemove_(key) {
+  getCache().remove(key);
 }

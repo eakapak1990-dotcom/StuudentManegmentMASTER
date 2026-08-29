@@ -645,8 +645,13 @@
             <h2>ผู้ใช้งาน & สิทธิ์</h2>
             <div class="desc">จัดการบัญชีผู้ใช้งานและกำหนดบทบาทในระบบ</div>
           </div>
-          <button class="btn btn-gold btn-sm px-3" onclick="openAddUserModal()"><i class="bi bi-person-plus me-1"></i>
-            เพิ่มผู้ใช้งาน</button>
+          <div class="d-flex gap-2">
+            <!-- OPTIMIZE: ปุ่มล้าง cache สำหรับ admin — ใช้เมื่อแก้ไขข้อมูล user ใน Sheet โดยตรงแล้วต้องการ refresh ทันที -->
+            <button class="btn btn-outline-secondary btn-sm px-3" onclick="clearUserCacheFromClient()"><i class="bi bi-arrow-clockwise me-1"></i>
+              ล้าง cache</button>
+            <button class="btn btn-gold btn-sm px-3" onclick="openAddUserModal()"><i class="bi bi-person-plus me-1"></i>
+              เพิ่มผู้ใช้งาน</button>
+          </div>
         </div>
 
         <!-- ============ การ์ดตั้งค่าภาคเรียน ============ -->

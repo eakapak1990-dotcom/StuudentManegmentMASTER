@@ -118,7 +118,9 @@
     sessionStorage.setItem("sa_token", result.token);
     sessionStorage.setItem("sa_user", JSON.stringify(result.user));
 
-    showAppShell_();
+    // ⚡ PERFORMANCE: แสดงหน้า dashboard ทันที (skeleton) แล้วโหลดข้อมูลแยก
+    // login ไม่รอ dashboard อีกต่อไป → user เห็นหน้าจอผ่านทันที
+    showAppShell_(null);  // null = แสดง skeleton loading
 
     Swal.fire({
       icon: "success",
@@ -138,7 +140,8 @@
   }
 
   /* ================= APP SHELL ================= */
-  function showAppShell_() {
+  // OPTIMIZE: prefetchDashboard ถ้า login ส่งมา จะใช้เลย ไม่ต้องโทรอีกครั้ง
+  function showAppShell_(prefetchDashboard) {
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("appShell").style.display = "block";
 
@@ -148,7 +151,7 @@
       currentUser.fullName.slice(0, 2);
 
     applyPermissions_();
-    loadDashboard();
+    loadDashboard(prefetchDashboard || null);
   }
 
   function applyPermissions_() {
@@ -1162,7 +1165,12 @@
   /* ================= DASHBOARD ================= */
   let chartGradeDistInstance = null;
 
-  function loadDashboard() {
+  // OPTIMIZE: ถ้า login prefetch ส่งข้อมูลมาแล้ว จะ render ทันทีไม่ต้องโทรซ้ำ
+  function loadDashboard(prefetched) {
+    if (prefetched && prefetched.success) {
+      renderDashboard_(prefetched);
+      return;
+    }
     google.script.run
       .withSuccessHandler(function (res) {
         if (!res.success) {
@@ -1170,6 +1178,17 @@
             '<div class="text-secondary small text-center py-3">โหลดข้อมูลไม่สำเร็จ</div>';
           return;
         }
+        renderDashboard_(res);
+      })
+      .withFailureHandler(function () {
+        document.getElementById("dashboardTimeline").innerHTML =
+          '<div class="text-secondary small text-center py-3">โหลดข้อมูลไม่สำเร็จ</div>';
+      })
+      .apiGetDashboardSummary(getToken());
+  }
+
+  // แยกส่วน render ออกมา เพื่อรับข้อมูลทั้งจาก prefetch และจากโทรปกติ
+  function renderDashboard_(res) {
         const s = res.summary;
         document.getElementById("statTotal").textContent =
           s.totalStudents.toLocaleString("th-TH");
@@ -1250,12 +1269,6 @@
             },
           },
         });
-      })
-      .withFailureHandler(function () {
-        document.getElementById("dashboardTimeline").innerHTML =
-          '<div class="text-secondary small text-center py-3">โหลดข้อมูลไม่สำเร็จ</div>';
-      })
-      .apiGetDashboardSummary(getToken());
   }
 
   /* ================= SCORE MODULE ================= */
@@ -2645,6 +2658,40 @@
   }
 
   /* ================= USER MANAGEMENT MODULE ================= */
+  // OPTIMIZE: ล้าง cache ข้อมูล user — admin ใช้เมื่อแก้ Sheet โดยตรงแล้วต้องการ refresh ทันที
+  function clearUserCacheFromClient() {
+    Swal.fire({
+      icon: "question",
+      title: "ล้าง cache ข้อมูลผู้ใช้?",
+      text: "ระบบจะโหลดข้อมูล user ใหม่จาก Sheet ในครั้งถัดไป",
+      showCancelButton: true,
+      confirmButtonText: "ล้าง cache",
+      cancelButtonText: "ยกเลิก",
+    }).then(function (r) {
+      if (!r.isConfirmed) return;
+      google.script.run
+        .withSuccessHandler(function (res) {
+          Swal.fire({
+            icon: res.success ? "success" : "error",
+            title: res.success ? "ล้าง cache แล้ว" : "ไม่สำเร็จ",
+            text: res.message || "",
+            timer: 1500,
+            showConfirmButton: false,
+          });
+          if (res.success) loadUsers();
+        })
+        .withFailureHandler(function () {
+          Swal.fire({
+            icon: "error",
+            title: "เกิดข้อผิดพลาด",
+            timer: 1500,
+            showConfirmButton: false,
+          });
+        })
+        .apiClearUserCache(getToken());
+    });
+  }
+
   function loadUsers() {
     document.getElementById("userTableBody").innerHTML =
       '<tr><td colspan="6" class="text-center text-secondary py-4">กำลังโหลด...</td></tr>';

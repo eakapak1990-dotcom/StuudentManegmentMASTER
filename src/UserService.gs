@@ -66,6 +66,9 @@ function api_addUser_(token, payload) {
       role, true, '', new Date()
     ]);
 
+    // OPTIMIZE: ล้าง cache รายชื่อ user เพื่อให้การ login ครั้งถัดไปเห็น user ใหม่
+    invalidateUserCache_();
+
     logAudit_(session, 'CREATE', CONFIG.SHEET_NAMES.USERS, newUserId, '', 'เพิ่มผู้ใช้งานใหม่: ' + username + ' (' + role + ')');
 
     return { success: true, userId: newUserId };
@@ -94,6 +97,8 @@ function api_toggleUserActive_(token, userId, active) {
     for (let i = 1; i < data.length; i++) {
       if (data[i][colId] === userId) {
         sheet.getRange(i + 1, headers.indexOf('Active') + 1).setValue(active);
+        // OPTIMIZE: ล้าง cache รายชื่อ user หลังเปลี่ยนสถานะ
+        invalidateUserCache_();
         logAudit_(session, active ? 'ACTIVATE' : 'SUSPEND', CONFIG.SHEET_NAMES.USERS, userId, '', active ? 'เปิดใช้งาน' : 'ระงับการใช้งาน');
         return { success: true };
       }
@@ -132,6 +137,8 @@ function api_changeOwnPassword_(token, oldPassword, newPassword) {
         sheet.getRange(i + 1, colHash + 1).setValue(hashPassword_(newPassword));
         // เพิกถอน session ทั้งหมด (รวม session ปัจจุบัน) — ต้องล็อกอินใหม่ด้วยรหัสใหม่
         bumpSessionVersion_(session.userId);
+        // OPTIMIZE: ล้าง cache รายชื่อ user หลังเปลี่ยน hash
+        invalidateUserCache_();
         logAudit_(session, 'CHANGE_PASSWORD', CONFIG.SHEET_NAMES.USERS, session.userId, '', 'เปลี่ยนรหัสผ่านตนเอง');
         return { success: true };
       }
@@ -165,6 +172,8 @@ function api_resetUserPassword_(token, userId, newPassword) {
         sheet.getRange(i + 1, colHash + 1).setValue(hashPassword_(newPassword));
         // เพิกถอน session เก่าทั้งหมดของผู้ถูกเปลี่ยนรหัส
         bumpSessionVersion_(userId);
+        // OPTIMIZE: ล้าง cache รายชื่อ user หลังรีเซ็ตรหัสผ่าน
+        invalidateUserCache_();
         logAudit_(session, 'RESET_PASSWORD', CONFIG.SHEET_NAMES.USERS, userId, '', 'รีเซ็ตรหัสผ่านโดยผู้ดูแลระบบ');
         return { success: true };
       }
@@ -184,3 +193,23 @@ function apiAddUser(token, payload) { return api_addUser_(token, payload); }
 function apiToggleUserActive(token, userId, active) { return api_toggleUserActive_(token, userId, active); }
 function apiChangeOwnPassword(token, oldPassword, newPassword) { return api_changeOwnPassword_(token, oldPassword, newPassword); }
 function apiResetUserPassword(token, userId, newPassword) { return api_resetUserPassword_(token, userId, newPassword); }
+
+/**
+ * ล้าง cache ข้อมูล user/auth — สำหรับ admin เรียกจากหน้า "ผู้ใช้งาน & สิทธิ์"
+ * ใช้เมื่อต้องการบังคับ refresh ข้อมูล user ทันที (ไม่รอ TTL)
+ */
+function apiClearUserCache(token) {
+  try {
+    const session = validateSession_(token);
+    if (!session) return { success: false, message: 'กรุณาเข้าสู่ระบบใหม่' };
+    if (!CONFIG.PERMISSIONS[session.role] || !CONFIG.PERMISSIONS[session.role].manageSystem) {
+      return { success: false, message: 'คุณไม่มีสิทธิ์ดำเนินการนี้' };
+    }
+    invalidateUserCache_();
+    clearAuthCache_();
+    return { success: true, message: 'ล้าง cache เรียบร้อย' };
+  } catch (err) {
+    Logger.log('apiClearUserCache error: ' + err.message);
+    return { success: false, message: 'เกิดข้อผิดพลาดฝั่งระบบ' };
+  }
+}
